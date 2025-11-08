@@ -25,7 +25,15 @@ except KeyError:
 app = Flask(__name__)
 app.secret_key = FLASK_KEY
 DATABASE = 'app.db'
-VALID_MODELS = ['gemini-2.5-pro', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash-exp']
+VALID_MODELS = [
+    'gemini-2.5-pro',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-lite',
+    'gemini-2.0-flash-exp',
+    'learnlm-2.0-flash-experimental'
+]
 
 
 def get_db():
@@ -184,7 +192,7 @@ def download_chat(chat_id):
     return send_file(
         mem_file,
         as_attachment=True,
-        download_name=f'{chat['title'].replace(" ", "_")}.txt',
+        download_name=f'{chat['title'].replace(' ', '_')}.txt',
         mimetype='text/plain'
     )
 

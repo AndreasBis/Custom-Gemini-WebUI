@@ -27,11 +27,23 @@
                 </button>
                 <button type='submit' name='model_choice' value='gemini-2.5-flash-lite'>
                     <strong>Gemini 2.5 Flash Lite</strong>
-                    <span>(Lightweight, for experimentation)</span>
+                    <span>(Lightweight, for speed)</span>
+                </button>
+                <button type='submit' name='model_choice' value='gemini-2.0-flash'>
+                    <strong>Gemini 2.0 Flash</strong>
+                    <span>(Older fast model)</span>
+                </button>
+                <button type='submit' name='model_choice' value='gemini-2.0-flash-lite'>
+                    <strong>Gemini 2.0 Flash Lite</strong>
+                    <span>(Older lightweight model)</span>
                 </button>
                 <button type='submit' name='model_choice' value='gemini-2.0-flash-exp'>
                     <strong>Gemini 2.0 Flash Exp</strong>
-                    <span>(Experimental, for testing)</span>
+                    <span>(Experimental 2.0)</span>
+                </button>
+                <button type='submit' name_choice='model_choice' value='learnlm-2.0-flash-experimental'>
+                    <strong>LearnLM 2.0 Flash Exp</strong>
+                    <span>(Experimental learning model)</span>
                 </button>
             </form>
         </div>
@@ -96,9 +108,6 @@
                 </div>
                 
                 <div class='header-right'>
-                    {% if model_is_selected %}
-                        <span class='model-badge'>Using: {{ current_chat.model }}</span>
-                    {% endif %}
                 </div>
             </div>
             
