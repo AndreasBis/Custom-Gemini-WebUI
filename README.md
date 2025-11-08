@@ -1,4 +1,4 @@
-# Project Summary
+# Custom Gemini WebUI
 
 This project is a web-based chat application that allows users to interact with various Google generative AI models. Key features include creating new chats, selecting from a list of available AI models, storing chat history, and downloading chat logs. The application is built with Flask and uses a SQLite database to manage conversations.
 
@@ -10,21 +10,29 @@ To set up and run the project on a Linux terminal, follow these steps:
    ```bash
    cd /path/to/your/project/directory
    ```
-1. Activate the virtual environment and set the environment variables:
+1. Create the virtual environment:
+   ```bash
+   python3 -m venv venv
+   ```
+2. Activate the virtual environment and set the environment variables:
    ```bash
    source venv/bin/activate
+   ```
+   ```bash
    export GOOGLE_API_KEY='ai-studio-api-key-here'
+   ```
+   ```bash
    export FLASK_SECRET_KEY=$(openssl rand -hex 16)
    ```
-2. Install the required packages:
+3. Install the required packages:
    ```bash
    pip install -r requirements.txt
    ```
-3. Initialize the database:
+4. Initialize the database:
    ```bash
    flask init-db
    ```
-4. Run the application:
+5. Run the application:
    ```bash
    flask --app app run --debug
    ```
