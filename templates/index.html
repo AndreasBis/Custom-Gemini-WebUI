@@ -29,6 +29,10 @@
                     <strong>Gemini 2.5 Flash Lite</strong>
                     <span>(Lightweight, for experimentation)</span>
                 </button>
+                <button type='submit' name='model_choice' value='gemini-2.0-flash-exp'>
+                    <strong>Gemini 2.0 Flash Exp</strong>
+                    <span>(Experimental, for testing)</span>
+                </button>
             </form>
         </div>
     </div>
@@ -102,7 +106,13 @@
                 {% for message in current_chat_messages %}
                     <div class='message {{ message.role }}'>
                         <div class='bubble'>
-                            {{ message.content | safe }}
+                            <div class='bubble-content'>{{ message.content | safe }}</div>
+                            <button class='copy-btn' title='Copy content'>
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-clipboard" viewBox="0 0 16 16">
+                                  <path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/>
+                                  <path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zM-1 1.5A1.5 1.5 0 0 1 .5 0h3A1.5 1.5 0 0 1 5 1.5v1A1.5 1.5 0 0 1 3.5 4h-3A1.5 1.5 0 0 1-1 2.5v-1zM.5 1a.5.5 0 0 0-.5.5v1a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-3z"/>
+                                </svg>
+                            </button>
                         </div>
                     </div>
                 {% endfor %}
@@ -116,15 +126,15 @@
             {% endif %}
             
             <form id='chat-form' class='chat-form'>
-                <input 
-                    type='text' 
+                <textarea 
                     id='prompt-input'
                     name='prompt' 
-                    placeholder='{% if model_is_selected %}Enter your message...{% else %}Please select a model to begin{% endif %}' 
+                    placeholder='{% if model_is_selected %}Enter your message... (Shift+Enter for new line){% else %}Please select a model to begin{% endif %}' 
                     autocomplete='off' 
                     required 
+                    rows='1'
                     {% if not model_is_selected or error %}disabled{% endif %}
-                >
+                ></textarea>
                 <button 
                     type='submit' 
                     id='send-button'
@@ -174,12 +184,35 @@
             handleChatSubmit();
         });
 
+        promptInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            const scrollHeight = this.scrollHeight;
+            const maxHeight = parseInt(getComputedStyle(this).maxHeight);
+
+            if (scrollHeight > maxHeight) {
+                this.style.overflowY = 'auto';
+                this.style.height = maxHeight + 'px';
+            } else {
+                this.style.overflowY = 'hidden';
+                this.style.height = scrollHeight + 'px';
+            }
+        });
+
+        promptInput.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                chatForm.requestSubmit();
+            }
+        });
+
         async function handleChatSubmit() {
             const prompt = promptInput.value.trim();
             if (prompt === '') { return; }
 
             promptInput.value = '';
             promptInput.disabled = true;
+            promptInput.style.height = 'auto';
+            promptInput.style.overflowY = 'hidden';
             sendButton.disabled = true;
             
             appendMessage('user', prompt);
@@ -220,9 +253,35 @@
             const bubbleDiv = document.createElement('div');
             bubbleDiv.classList.add('bubble');
             if (bubbleClass) { bubbleDiv.classList.add(bubbleClass); }
+
+            const contentDiv = document.createElement('div');
+            contentDiv.classList.add('bubble-content');
             
-            if (role === 'user') { bubbleDiv.textContent = content; } 
-            else { bubbleDiv.innerHTML = content; }
+            if (role === 'user') { 
+                contentDiv.textContent = content; 
+            } else { 
+                contentDiv.innerHTML = content; 
+            }
+            
+            bubbleDiv.appendChild(contentDiv);
+
+            if (!bubbleClass) {
+                const copyBtn = document.createElement('button');
+                copyBtn.className = 'copy-btn';
+                copyBtn.title = 'Copy content';
+                copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-clipboard" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zM-1 1.5A1.5 1.5 0 0 1 .5 0h3A1.5 1.5 0 0 1 5 1.5v1A1.5 1.5 0 0 1 3.5 4h-3A1.5 1.5 0 0 1-1 2.5v-1zM.5 1a.5.5 0 0 0-.5.5v1a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-3z"/></svg>`;
+                
+                copyBtn.addEventListener('click', () => {
+                    const textToCopy = contentDiv.innerText;
+                    navigator.clipboard.writeText(textToCopy).then(() => {
+                        copyBtn.classList.add('copied');
+                        setTimeout(() => copyBtn.classList.remove('copied'), 1500);
+                    }).catch(err => {
+                        console.error('Failed to copy: ', err);
+                    });
+                });
+                bubbleDiv.appendChild(copyBtn);
+            }
             
             messageDiv.appendChild(bubbleDiv);
             chatWindow.insertBefore(messageDiv, document.getElementById('chat-end'));
@@ -233,8 +292,28 @@
             const chatEnd = document.getElementById('chat-end');
             if (chatEnd) { chatEnd.scrollIntoView(); }
         }
+        
+        function initCopyButtons() {
+            document.querySelectorAll('.copy-btn').forEach(button => {
+                button.addEventListener('click', () => {
+                    const bubble = button.closest('.bubble');
+                    const content = bubble.querySelector('.bubble-content');
+                    if (content) {
+                        const textToCopy = content.innerText;
+                        navigator.clipboard.writeText(textToCopy).then(() => {
+                            button.classList.add('copied');
+                            setTimeout(() => button.classList.remove('copied'), 1500);
+                        }).catch(err => {
+                            console.error('Failed to copy: ', err);
+                        });
+                    }
+                });
+            });
+        }
 
         document.addEventListener('DOMContentLoaded', function () {
+            initCopyButtons();
+        
             const resizerEl = document.getElementById('resizer');
             const sidebarEl = document.getElementById('sidebar');
             const minWidth = 200; 

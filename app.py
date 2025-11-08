@@ -25,7 +25,7 @@ except KeyError:
 app = Flask(__name__)
 app.secret_key = FLASK_KEY
 DATABASE = 'app.db'
-VALID_MODELS = ['gemini-2.5-pro', 'gemini-2.5-flash-lite', 'gemini-2.5-flash']
+VALID_MODELS = ['gemini-2.5-pro', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash-exp']
 
 
 def get_db():

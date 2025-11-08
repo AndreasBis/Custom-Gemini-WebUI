@@ -184,7 +184,8 @@ body.is-resizing {
 }
 
 .resizer {
-    width: 8px; min-width: 8px;
+    width: 4px;
+    min-width: 4px;
     height: 100vh;
     background: #5D2A2A;
     cursor: col-resize;
@@ -263,6 +264,7 @@ body.is-resizing {
 }
 .message { display: flex; width: 100%; max-width: 800px; }
 .message .bubble {
+    position: relative;
     padding: 0.85rem 1.35rem;
     line-height: 1.5; word-wrap: break-word; font-weight: 300;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
@@ -274,18 +276,20 @@ body.is-resizing {
     border-radius: 8px 20px 8px 20px;
     background-color: #A2574F;
     color: #FFFFFF;
+    padding-left: 2.75rem;
 }
 .message.model { justify-content: flex-start; margin-right: auto; }
 .message.model .bubble {
     background-color: #5D2A2A;
     color: #F7E6CA;
+    padding-right: 2.75rem;
 }
 
 .message .bubble p { margin: 0.5rem 0; }
 .message .bubble p:first-child { margin-top: 0; }
 .message .bubble p:last-child { margin-bottom: 0; }
 
-.bubble.typing { padding-top: 1rem; padding-bottom: 1rem; }
+.bubble.typing { padding-top: 1rem; padding-bottom: 1rem; padding-left: 1.35rem; padding-right: 1.35rem; }
 .typing-indicator { display: flex; gap: 5px; align-items: center; }
 .typing-indicator span {
     width: 8px; height: 8px;
@@ -312,27 +316,32 @@ body.is-resizing {
     background-color: #A2574F;
     border-top: 2px solid #5D2A2A;
     flex-shrink: 0;
+    align-items: flex-end;
 }
-.chat-form input[type='text'] {
+.chat-form textarea {
     flex-grow: 1; border: 2px solid #5D2A2A;
     background-color: #F7E6CA; color: #5D2A2A;
     border-radius: 20px; padding: 0.75rem 1.25rem;
     font-size: 1rem; font-family: 'Lexend', sans-serif;
     margin-right: 1rem; transition: all 0.2s ease;
+    resize: none;
+    line-height: 1.5;
+    max-height: calc(1.5em * 7 + 1.5rem + 4px);
+    overflow-y: hidden;
 }
-.chat-form input[type='text']::placeholder {
+.chat-form textarea::placeholder {
     color: #A2574F; opacity: 0.7;
 }
 
 @keyframes blink-placeholder { 50% { opacity: 0.7; } }
-.chat-form input[type='text']:focus::placeholder {
+.chat-form textarea:focus::placeholder {
     animation: blink-placeholder 1.2s step-end infinite;
 }
-.chat-form input[type='text']:focus {
+.chat-form textarea:focus {
     outline: none; border-color: #F7E6CA;
     box-shadow: 0 0 0 3px rgba(93, 42, 42, 0.5);
 }
-.chat-form input[type='text']:disabled {
+.chat-form textarea:disabled {
     background-color: #dcbfa2; cursor: not-allowed;
 }
 
@@ -341,6 +350,7 @@ body.is-resizing {
     border: none; border-radius: 20px; padding: 0.75rem 1.5rem;
     font-size: 1rem; font-weight: 600; cursor: pointer;
     transition: all 0.2s ease;
+    align-self: flex-end;
 }
 .chat-form button:hover {
     background-color: #F7E6CA; color: #5D2A2A;
@@ -365,4 +375,41 @@ body.is-resizing {
     font-size: 0.75rem;
     display: inline-block;
     border-top-left-radius: 10px;
+}
+
+.copy-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: #A2574F; 
+    color: #F7E6CA;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    padding: 5px;
+    display: flex;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.2s ease;
+    z-index: 5;
+}
+.message.user .copy-btn {
+    right: auto;
+    left: 10px;
+    background: #5D2A2A; 
+}
+.message .bubble:hover .copy-btn {
+    opacity: 1;
+    visibility: visible;
+}
+.copy-btn:hover {
+    transform: scale(1.1);
+}
+.copy-btn svg {
+    width: 14px;
+    height: 14px;
+}
+.copy-btn.copied {
+    background-color: #4CAF50;
+    color: white;
 }
