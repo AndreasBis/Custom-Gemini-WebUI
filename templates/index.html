@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>Gemini Web Chat</title>
+    <link rel='preconnect' href='https://fonts.googleapis.com'>
+    <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+    <link href='https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500&display=swap' rel='stylesheet'>
+    <link rel='stylesheet' href='{{ url_for('static', filename='style.css') }}'>
+</head>
+<body>
+
+    {% if not model_is_selected and not error %}
+    <div class='modal-overlay' id='modal-overlay'>
+        <div class='modal-content'>
+            <h2>Select a Model</h2>
+            <p>Choose which Gemini model you'd like to chat with.</p>
+            <form action='{{ url_for('select_model') }}' method='POST' class='model-picker-form'>
+                <button type='submit' name='model_choice' value='gemini-2.5-pro'>
+                    <strong>Gemini 2.5 Pro</strong>
+                    <span>(Strongest, for complex tasks)</span>
+                </button>
+                <button type='submit' name='model_choice' value='gemini-2.5-flash'>
+                    <strong>Gemini 2.5 Flash</strong>
+                    <span>(Fast & capable, for general use)</span>
+                </button>
+                <button type='submit' name='model_choice' value='gemini-2.5-flash-lite'>
+                    <strong>Gemini 2.5 Flash Lite</strong>
+                    <span>(Lightweight, for experimentation)</span>
+                </button>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class='modal-overlay' id='rename-modal-overlay' style='display: none;'>
+        <div class='modal-content'>
+            <h2>Rename Chat</h2>
+            <p>Enter a new title for this chat.</p>
+            <form id='rename-form' action='' method='POST' class='rename-form'>
+                <input type='text' name='new_title' id='rename-input' placeholder='New chat title...' required autocomplete='off'>
+                <div class='rename-actions'>
+                    <button type='button' id='rename-cancel-btn'>Cancel</button>
+                    <button type='submit'>Rename</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class='app-layout sidebar-hidden' id='app-layout'>
+
+        <div class='sidebar' id='sidebar'>
+            <a href='{{ url_for('new_chat') }}' class='new-chat-btn'>+ New Chat</a>
+            <nav class='chat-history-list'>
+                {% for chat in all_chats %}
+                <div class='chat-history-item-wrapper {% if chat.id == current_chat_id %}active{% endif %}'>
+                    <a href='{{ url_for('chat', chat_id=chat.id) }}' class='chat-history-item'>
+                        {{ chat.title }}
+                    </a>
+                    <div class='chat-options'>
+                        <button class='kebab-btn' title='Chat options' data-chat-id='{{ chat.id }}' data-chat-title='{{ chat.title }}'>⋮</button>
+                        <div class='kebab-dropdown'>
+                            <button type='button' class='rename-btn'>Rename</button>
+                            <a href='{{ url_for('download_chat', chat_id=chat.id) }}'>Download</a>
+                            <form action='{{ url_for('delete_chat', chat_id=chat.id) }}' method='POST' onsubmit='return confirm("Delete this chat permanently?");'>
+                                <button type='submit'>Delete</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </nav>
+        </div>
+
+        <div class='resizer' id='resizer'></div>
+
+        <div class='container'>
+            <div class='header'>
+                <div class='header-left'>
+                    <button class='menu-btn' id='menu-btn' title='Toggle Menu'>
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </button>
+                </div>
+                
+                <div class='header-center'>
+                    <h1 class='chat-title'>
+                        {% if model_is_selected %}{{ current_chat.title }}{% else %}Gemini Chat{% endif %}
+                    </h1>
+                </div>
+                
+                <div class='header-right'>
+                    {% if model_is_selected %}
+                        <span class='model-badge'>Using: {{ current_chat.model }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class='chat-window' id='chat-window'>
+                {% for message in current_chat_messages %}
+                    <div class='message {{ message.role }}'>
+                        <div class='bubble'>
+                            {{ message.content | safe }}
+                        </div>
+                    </div>
+                {% endfor %}
+                <div id='chat-end'></div>
+            </div>
+            
+            {% if error %}
+                <div class='error-banner'>
+                    <strong>Application Error:</strong> {{ error }}
+                </div>
+            {% endif %}
+            
+            <form id='chat-form' class='chat-form'>
+                <input 
+                    type='text' 
+                    id='prompt-input'
+                    name='prompt' 
+                    placeholder='{% if model_is_selected %}Enter your message...{% else %}Please select a model to begin{% endif %}' 
+                    autocomplete='off' 
+                    required 
+                    {% if not model_is_selected or error %}disabled{% endif %}
+                >
+                <button 
+                    type='submit' 
+                    id='send-button'
+                    {% if not model_is_selected or error %}disabled{% endif %}
+                >Send</button>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        const menuBtn = document.getElementById('menu-btn');
+        const appLayout = document.getElementById('app-layout');
+        const sidebar = document.getElementById('sidebar');
+        const resizer = document.getElementById('resizer');
+        
+        menuBtn.addEventListener('click', () => {
+            appLayout.classList.toggle('sidebar-hidden');
+            if (appLayout.classList.contains('sidebar-hidden')) {
+                resizer.style.pointerEvents = 'none';
+            } else {
+                resizer.style.pointerEvents = 'auto';
+            }
+        });
+
+        const modalOverlay = document.getElementById('modal-overlay');
+        if (modalOverlay) {
+            modalOverlay.addEventListener('click', function(event) {
+                if (event.target === modalOverlay) { 
+                    {% if fallback_chat_id %}
+                    window.location.href = '{{ url_for('chat', chat_id=fallback_chat_id) }}';
+                    {% else %}
+                    window.location.href = '{{ url_for('index') }}';
+                    {% endif %}
+                }
+            });
+        }
+    
+        window.addEventListener('load', (event) => { scrollToBottom(); });
+
+        const chatForm = document.getElementById('chat-form');
+        const promptInput = document.getElementById('prompt-input');
+        const sendButton = document.getElementById('send-button');
+        const chatWindow = document.getElementById('chat-window');
+
+        chatForm.addEventListener('submit', function(event) {
+            event.preventDefault(); 
+            handleChatSubmit();
+        });
+
+        async function handleChatSubmit() {
+            const prompt = promptInput.value.trim();
+            if (prompt === '') { return; }
+
+            promptInput.value = '';
+            promptInput.disabled = true;
+            sendButton.disabled = true;
+            
+            appendMessage('user', prompt);
+            const typingBubble = appendMessage('model', '<div class="typing-indicator"><span></span><span></span><span></span></div>', 'typing');
+            
+            scrollToBottom();
+
+            try {
+                const response = await fetch("{{ url_for('api_chat') }}", {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 'prompt': prompt }),
+                });
+
+                if (!response.ok) {
+                    const errData = await response.json();
+                    throw new Error(errData.error || 'Network response was not ok');
+                }
+                
+                window.location.reload();
+
+            } catch (error) {
+                typingBubble.remove();
+                appendMessage('model', `--- Error connecting to server: ${error.message} ---`);
+                console.error('Fetch Error:', error);
+                
+                promptInput.disabled = false;
+                sendButton.disabled = false;
+                promptInput.focus();
+                scrollToBottom();
+            }
+        }
+
+        function appendMessage(role, content, bubbleClass = null) {
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('message', role);
+            
+            const bubbleDiv = document.createElement('div');
+            bubbleDiv.classList.add('bubble');
+            if (bubbleClass) { bubbleDiv.classList.add(bubbleClass); }
+            
+            if (role === 'user') { bubbleDiv.textContent = content; } 
+            else { bubbleDiv.innerHTML = content; }
+            
+            messageDiv.appendChild(bubbleDiv);
+            chatWindow.insertBefore(messageDiv, document.getElementById('chat-end'));
+            return messageDiv;
+        }
+
+        function scrollToBottom() {
+            const chatEnd = document.getElementById('chat-end');
+            if (chatEnd) { chatEnd.scrollIntoView(); }
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const resizerEl = document.getElementById('resizer');
+            const sidebarEl = document.getElementById('sidebar');
+            const minWidth = 200; 
+            const maxWidth = window.innerWidth * 0.33; 
+            let isResizing = false;
+
+            resizerEl.addEventListener('mousedown', function (e) {
+                isResizing = true;
+                document.body.classList.add('is-resizing');
+                document.addEventListener('mousemove', handleMouseMove);
+                document.addEventListener('mouseup', handleMouseUp);
+            });
+
+            function handleMouseMove(e) {
+                if (!isResizing) return;
+                let newWidth = e.clientX;
+                if (newWidth < minWidth) newWidth = minWidth;
+                if (newWidth > maxWidth) newWidth = maxWidth;
+                sidebarEl.style.width = newWidth + 'px';
+            }
+
+            function handleMouseUp() {
+                isResizing = false;
+                document.body.classList.remove('is-resizing');
+                document.removeEventListener('mousemove', handleMouseMove);
+                document.removeEventListener('mouseup', handleMouseUp);
+            }
+        });
+
+        const renameModal = document.getElementById('rename-modal-overlay');
+        const renameForm = document.getElementById('rename-form');
+        const renameInput = document.getElementById('rename-input');
+        const renameCancel = document.getElementById('rename-cancel-btn');
+
+        document.querySelectorAll('.kebab-btn').forEach(button => {
+            button.addEventListener('click', function(e) {
+                e.stopPropagation(); 
+                const chatId = this.dataset.chatId;
+                const chatTitle = this.dataset.chatTitle;
+                
+                const dropdown = this.nextElementSibling;
+                const renameBtn = dropdown.querySelector('.rename-btn');
+                
+                renameBtn.onclick = function() {
+                    renameForm.action = `/rename_chat/${chatId}`;
+                    renameInput.value = (chatTitle === 'New Chat') ? '' : chatTitle;
+                    renameModal.style.display = 'flex';
+                    renameInput.focus();
+                    dropdown.classList.remove('show');
+                };
+
+                document.querySelectorAll('.kebab-dropdown.show').forEach(d => d.classList.remove('show'));
+                dropdown.classList.toggle('show');
+            });
+        });
+
+        window.addEventListener('click', function(e) {
+            document.querySelectorAll('.kebab-dropdown.show').forEach(dropdown => {
+                dropdown.classList.remove('show');
+            });
+        });
+
+        renameCancel.addEventListener('click', () => {
+            renameModal.style.display = 'none';
+        });
+        renameModal.addEventListener('click', function(event) {
+            if (event.target === renameModal) {
+                renameModal.style.display = 'none';
+            }
+        });
+
+    </script>
+</body>
+</html>
