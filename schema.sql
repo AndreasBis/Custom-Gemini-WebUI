@@ -13,6 +13,7 @@ CREATE TABLE messages (
   chat_id TEXT NOT NULL,
   role TEXT NOT NULL,
   content TEXT NOT NULL,
+  message_type TEXT NOT NULL DEFAULT 'chat',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (chat_id) REFERENCES chats (id)
 );

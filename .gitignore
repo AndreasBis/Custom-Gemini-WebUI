@@ -6,3 +6,6 @@ app.db
 
 # Virtual environment
 venv/
+
+# Code garden
+code/
