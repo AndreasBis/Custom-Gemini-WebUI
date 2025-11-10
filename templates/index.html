@@ -29,22 +29,6 @@
                     <strong>Gemini 2.5 Flash Lite</strong>
                     <span>(Lightweight, for speed)</span>
                 </button>
-                <button type='submit' name='model_choice' value='gemini-2.0-flash'>
-                    <strong>Gemini 2.0 Flash</strong>
-                    <span>(Older fast model)</span>
-                </button>
-                <button type='submit' name='model_choice' value='gemini-2.0-flash-lite'>
-                    <strong>Gemini 2.0 Flash Lite</strong>
-                    <span>(Older lightweight model)</span>
-                </button>
-                <button type='submit' name='model_choice' value='gemini-2.0-flash-exp'>
-                    <strong>Gemini 2.0 Flash Exp</strong>
-                    <span>(Experimental 2.0)</span>
-                </button>
-                <button type='submit' name_choice='model_choice' value='learnlm-2.0-flash-experimental'>
-                    <strong>LearnLM 2.0 Flash Exp</strong>
-                    <span>(Experimental learning model)</span>
-                </button>
             </form>
         </div>
     </div>
@@ -131,7 +115,7 @@
             
             <div class='chat-window' id='chat-window'>
                 {% for message in current_chat_messages %}
-                    <div class='message {{ message.role }} {{ message.message_type }}'>
+                    <div class='message {{ message.role }} {{ message.message_type }}' {% if message.message_type == 'agent_plan' and message.raw_content %}data-raw-plan-json='{{ message.raw_content }}'{% endif %} data-raw-copy-data='{{ message.raw_content }}'>
                         <div class='bubble'>
                             <div class='bubble-content'>{{ message.content | safe }}</div>
                             {% if message.message_type not in ['agent_plan', 'user_confirmation'] %}
@@ -178,6 +162,8 @@
         const appLayout = document.getElementById('app-layout');
         const sidebar = document.getElementById('sidebar');
         const resizer = document.getElementById('resizer');
+        let typingBubble = null;
+        let isPlanRunning = false;
         
         menuBtn.addEventListener('click', () => {
             appLayout.classList.toggle('sidebar-hidden');
@@ -209,7 +195,7 @@
         const chatWindow = document.getElementById('chat-window');
         const agentToggle = document.getElementById('agent-mode-toggle');
 
-        // Agent Mode Toggle Persistence
+        
         agentToggle.addEventListener('change', () => {
             localStorage.setItem('agentMode', agentToggle.checked);
         });
@@ -250,23 +236,46 @@
                 chatForm.requestSubmit();
             }
         });
+        
+        function showTypingIndicator() {
+            if (typingBubble) {
+                typingBubble.remove();
+            }
+            typingBubble = appendMessage('model', '<div class="typing-indicator"><span></span><span></span><span></span></div>', 'typing');
+            scrollToBottom();
+        }
+        
+        function removeTypingIndicator() {
+            if (typingBubble) {
+                typingBubble.remove();
+                typingBubble = null;
+            }
+        }
+        
+        function enableChatInput() {
+            promptInput.disabled = false;
+            sendButton.disabled = false;
+            promptInput.focus();
+        }
+        
+        function disableChatInput() {
+            promptInput.disabled = true;
+            sendButton.disabled = true;
+        }
 
         async function handleChatSubmit() {
             const prompt = promptInput.value.trim();
-            if (prompt === '') { return; }
+            if (prompt === '' || isPlanRunning) { return; }
 
             const agentMode = agentToggle.checked;
 
             promptInput.value = '';
-            promptInput.disabled = true;
+            disableChatInput();
             promptInput.style.height = 'auto';
             promptInput.style.overflowY = 'hidden';
-            sendButton.disabled = true;
             
-            appendMessage('user', prompt, 'chat');
-            const typingBubble = appendMessage('model', '<div class="typing-indicator"><span></span><span></span><span></span></div>', 'typing');
-            
-            scrollToBottom();
+            appendMessage('user', prompt, 'chat', null, prompt);
+            showTypingIndicator();
 
             try {
                 const response = await fetch("{{ url_for('api_chat') }}", {
@@ -278,7 +287,7 @@
                     }),
                 });
 
-                typingBubble.remove();
+                removeTypingIndicator();
                 
                 if (!response.ok) {
                     const errData = await response.json();
@@ -286,85 +295,108 @@
                 }
                 
                 const data = await response.json();
-                appendMessage(data.role, data.content, data.message_type, null, data.raw_plan);
                 
-                if (data.message_type === 'agent_plan') {
-                    // Prompt stays disabled until user acts on the plan
+                let rawDataForCopy = data.raw_plan;
+                if (data.message_type === 'chat') {
+                    
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = data.content;
+                    const meta = tempDiv.querySelector('.msg-meta');
+                    if (meta) { meta.remove(); }
+                    rawDataForCopy = tempDiv.innerText;
+                }
+                
+                appendMessage(data.role, data.content, data.message_type, null, rawDataForCopy, data.raw_plan);
+                
+                if (data.message_type === 'agent_plan' || data.message_type === 'user_confirmation') {
+                    disableChatInput();
                 } else {
-                    promptInput.disabled = false;
-                    sendButton.disabled = false;
-                    promptInput.focus();
+                    enableChatInput();
                 }
                 
             } catch (error) {
-                typingBubble.remove();
-                appendMessage('model', `--- Error connecting to server: ${error.message} ---`, 'chat');
+                removeTypingIndicator();
+                appendMessage('model', `--- Error connecting to server: ${error.message} ---`, 'chat', null, `Error: ${error.message}`);
                 console.error('Fetch Error:', error);
-                
-                promptInput.disabled = false;
-                sendButton.disabled = false;
-                promptInput.focus();
+                enableChatInput();
             } finally {
                 scrollToBottom();
             }
         }
         
+        function approvePlan(chatId, buttonEl) {
+            if (isPlanRunning) return;
+            
+            const planActions = buttonEl.closest('.plan-actions');
+            planActions.innerHTML = '<p>Executing plan...</p>';
+            
+            executePlan(chatId);
+        }
+        
         async function executePlan(chatId) {
-            let typingBubble = appendMessage('model', '<div class="typing-indicator"><span></span><span></span><span></span></div>', 'typing');
-            scrollToBottom();
+            if (isPlanRunning) return;
+            isPlanRunning = true;
+            disableChatInput();
+            showTypingIndicator();
             
             try {
-                let response = await fetch(`/api/execute_plan/${chatId}`, {
+                const response = await fetch(`/api/execute_plan/${chatId}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({})
                 });
 
-                while (response.ok) {
-                    const data = await response.json();
-                    typingBubble.remove();
-
-                    if (data.status === 'proceed') {
-                        typingBubble = appendMessage('model', '<div class="typing-indicator"><span></span><span></span><span></span></div>', 'typing');
-                        scrollToBottom();
-                        
-                        response = await fetch(`/api/execute_plan/${chatId}`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({})
-                        });
-                    } else if (data.status === 'confirmation_pending' || data.status === 'file_selection_pending') {
-                        appendMessage('model', data.content, 'user_confirmation');
-                        scrollToBottom();
-                        return; 
-                    } else if (data.status === 'complete') {
-                        appendMessage('model', data.message, 'chat');
-                        break; 
-                    } else if (data.status === 'error') {
-                        throw new Error(data.message);
-                    }
-                }
+                removeTypingIndicator();
                 
                 if (!response.ok) {
                     const errData = await response.json();
                     throw new Error(errData.error || 'Network response was not ok');
                 }
+                
+                const data = await response.json();
+
+                if (data.status === 'proceed') {
+                    isPlanRunning = false; 
+                    executePlan(chatId); 
+                } else if (data.status === 'confirmation_pending' || data.status === 'file_selection_pending') {
+                    appendMessage('model', data.content, 'user_confirmation');
+                    scrollToBottom();
+                    isPlanRunning = false; 
+                    disableChatInput(); 
+                } else if (data.status === 'complete') {
+                    const rawText = data.message.replace(/<.*?>/g, '');
+                    appendMessage('model', data.message, 'chat', null, rawText);
+                    isPlanRunning = false;
+                    enableChatInput();
+                } else if (data.status === 'error') {
+                    throw new Error(data.message);
+                }
 
             } catch (error) {
-                typingBubble.remove();
-                appendMessage('model', `--- Agent Error: ${error.message} ---`, 'chat');
+                removeTypingIndicator();
+                appendMessage('model', `--- Agent Error: ${error.message} ---`, 'chat', null, `Agent Error: ${error.message}`);
+                isPlanRunning = false;
+                enableChatInput();
             } finally {
-                promptInput.disabled = false;
-                sendButton.disabled = false;
-                promptInput.focus();
                 scrollToBottom();
-                window.location.reload(); 
             }
         }
         
+        function handleDeletion(command, chatId, buttonEl) {
+            if (isPlanRunning) return;
+            
+            const planActions = buttonEl.closest('.plan-actions');
+            planActions.innerHTML = '<p>Confirming deletion...</p>';
+            
+            showDeletionModal(chatId, command);
+        }
+        
         async function handleAgentAction(chatId, actionType, actionData) {
-            let typingBubble = appendMessage('model', '<div class="typing-indicator"><span></span><span></span><span></span></div>', 'typing');
-            scrollToBottom();
+            if (isPlanRunning) return;
+            isPlanRunning = true;
+            
+            document.querySelectorAll('.message.user_confirmation').forEach(el => el.remove());
+            showTypingIndicator();
             
             try {
                 const response = await fetch('/api/agent_action', {
@@ -372,6 +404,8 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action_type: actionType, action_data: actionData })
                 });
+                
+                removeTypingIndicator();
                 
                 if (!response.ok) {
                     const errData = await response.json();
@@ -381,21 +415,26 @@
                 const data = await response.json();
                 
                 if (data.status === 'proceed') {
+                    isPlanRunning = false;
                     executePlan(chatId);
                 } else {
                     throw new Error(data.message || 'Unknown error after action');
                 }
                 
             } catch (error) {
-                appendMessage('model', `--- Agent Error: ${error.message} ---`, 'chat');
+                removeTypingIndicator();
+                appendMessage('model', `--- Agent Error: ${error.message} ---`, 'chat', null, `Agent Error: ${error.message}`);
+                isPlanRunning = false;
+                enableChatInput();
             } finally {
-                typingBubble.remove();
                 scrollToBottom();
             }
         }
 
         function handleFileSelection(event, chatId) {
             event.preventDefault();
+            if (isPlanRunning) return;
+            
             const form = event.target;
             const formData = new FormData(form);
             const selectedFiles = formData.getAll('selected_files');
@@ -406,40 +445,53 @@
         }
         
         function cancelPlan() {
-            document.querySelector('.message.agent_plan .plan-actions').closest('.message').remove();
-            appendMessage('model', 'Agent plan cancelled by user.', 'chat');
-            promptInput.disabled = false;
-            sendButton.disabled = false;
-            promptInput.focus();
+            document.querySelector('.message.agent_plan')?.remove();
+            document.querySelectorAll('.message.user_confirmation').forEach(el => el.remove());
+            
+            appendMessage('model', 'Agent plan cancelled by user.', 'chat', null, 'Agent plan cancelled by user.');
+            isPlanRunning = false;
+            enableChatInput();
         }
 
         function editPlan(button, chatId) {
+            if (isPlanRunning) return;
+            disableChatInput();
+            
             const bubble = button.closest('.bubble');
             const bubbleContent = bubble.querySelector('.bubble-content');
             const message = bubble.closest('.message');
-            const rawPlan = message.dataset.rawPlan;
+            const rawPlan = message.dataset.rawPlanJson;
 
             if (!rawPlan) {
                 alert('Error: Raw plan data not found.');
                 return;
             }
-
+            
+            const originalHTML = bubbleContent.innerHTML;
+            
             bubbleContent.innerHTML = `
                 <textarea class="plan-editor">${JSON.stringify(JSON.parse(rawPlan), null, 2)}</textarea>
                 <div class="plan-actions-edit">
-                    <button onclick="savePlan(this, '${chatId}')">Save & Approve</button>
-                    <button onclick="cancelEdit()">Cancel Edit</button>
+                    <button id="save-plan-btn">Save & Approve</button>
+                    <button id="cancel-edit-btn">Cancel Edit</button>
                 </div>
             `;
+            
+            bubbleContent.querySelector('#save-plan-btn').onclick = () => savePlan(bubbleContent, chatId);
+            bubbleContent.querySelector('#cancel-edit-btn').onclick = () => {
+                bubbleContent.innerHTML = originalHTML;
+                enableChatInput();
+            };
         }
 
-        async function savePlan(button, chatId) {
-            const bubbleContent = button.closest('.bubble-content');
+        async function savePlan(bubbleContent, chatId) {
+            if (isPlanRunning) return;
+            
             const textarea = bubbleContent.querySelector('.plan-editor');
             const newPlanJson = textarea.value;
 
             try {
-                JSON.parse(newPlanJson); // Validate JSON
+                JSON.parse(newPlanJson); 
             } catch (e) {
                 alert('Invalid JSON format. Please correct and try again.');
                 return;
@@ -461,16 +513,11 @@
                     throw new Error(data.error || 'Failed to save plan');
                 }
             } catch (err) {
-                appendMessage('model', '--- Error saving plan: ' + err.message + ' ---', 'chat');
+                appendMessage('model', '--- Error saving plan: ' + err.message + ' ---', 'chat', null, `Error saving plan: ${err.message}`);
                 scrollToBottom();
+                enableChatInput();
             }
         }
-
-        function cancelEdit() {
-            // Simple solution: reload the page to restore the original plan message
-            window.location.reload();
-        }
-
 
         const deletionModal = document.getElementById('deletion-modal-overlay');
         const deletionText = document.getElementById('deletion-modal-text');
@@ -494,38 +541,58 @@
         deletionConfirmBtn.addEventListener('click', () => {
             deletionModal.style.display = 'none';
             if (currentChatId && currentDeletionCommand) {
-                document.querySelector('.message.user_confirmation').remove();
                 handleAgentAction(currentChatId, 'confirm_deletion', { command: currentDeletionCommand });
             }
         });
         
         document.addEventListener('click', function(e) {
-            // Handle deletion confirmation
+            if (isPlanRunning) {
+                e.stopImmediatePropagation();
+                return;
+            }
+            
             const approveBtn = e.target.closest('.plan-actions .approve-btn');
-            if (approveBtn && approveBtn.closest('.message.user_confirmation')) {
+            if (approveBtn) {
                 const messageBubble = approveBtn.closest('.message.user_confirmation');
-                const code = messageBubble.querySelector('code');
-                if (code) {
-                    const command = code.innerText;
-                    const chatId = '{{ current_chat_id }}';
-                    showDeletionModal(chatId, command);
+                if (messageBubble) {
+                    const command = approveBtn.onclick.toString().match(/handleDeletion\("(.+?)"/);
+                    if (command && command[1]) {
+                        try {
+                            const decodedCommand = JSON.parse(`"${command[1]}"`);
+                            approveBtn.disabled = true;
+                            approveBtn.innerText = 'Confirming...';
+                            showDeletionModal('{{ current_chat_id }}', decodedCommand);
+                        } catch(e) { console.error('Could not parse command', e); }
+                    }
                 }
             }
             
-            // Handle deletion denial
             const cancelBtn = e.target.closest('.plan-actions .cancel-btn');
-            if (cancelBtn && cancelBtn.closest('.message.user_confirmation')) {
+            if (cancelBtn && (cancelBtn.closest('.message.user_confirmation') || cancelBtn.closest('.message.agent_plan'))) {
                 cancelPlan();
+            }
+            
+            const editBtn = e.target.closest('.plan-actions .edit-btn');
+            if (editBtn) {
+                editPlan(editBtn, '{{ current_chat_id }}');
+            }
+            
+            const approvePlanBtn = e.target.closest('.plan-actions .approve-btn');
+            if (approvePlanBtn && approvePlanBtn.closest('.message.agent_plan')) {
+                approvePlan( '{{ current_chat_id }}', approvePlanBtn);
             }
         });
 
 
-        function appendMessage(role, content, messageType = 'chat', bubbleClass = null, rawPlanJson = null) {
+        function appendMessage(role, content, messageType = 'chat', bubbleClass = null, rawDataForCopy = null, rawPlanJson = null) {
             const messageDiv = document.createElement('div');
             messageDiv.classList.add('message', role, messageType);
             
             if (rawPlanJson) {
-                messageDiv.dataset.rawPlan = rawPlanJson;
+                messageDiv.dataset.rawPlanJson = rawPlanJson;
+            }
+            if (rawDataForCopy) {
+                messageDiv.dataset.rawCopyData = rawDataForCopy;
             }
             
             const bubbleDiv = document.createElement('div');
@@ -545,7 +612,7 @@
                 copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-clipboard" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zM-1 1.5A1.5 1.5 0 0 1 .5 0h3A1.5 1.5 0 0 1 5 1.5v1A1.5 1.5 0 0 1 3.5 4h-3A1.5 1.5 0 0 1 -1 2.5v-1zM.5 1a.5.5 0 0 0-.5.5v1a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-3z"/></svg>`;
                 
                 copyBtn.addEventListener('click', () => {
-                    const textToCopy = contentDiv.innerText;
+                    const textToCopy = messageDiv.dataset.rawCopyData || contentDiv.innerText;
                     navigator.clipboard.writeText(textToCopy).then(() => {
                         copyBtn.classList.add('copied');
                         setTimeout(() => copyBtn.classList.remove('copied'), 1500);
@@ -570,9 +637,10 @@
             document.querySelectorAll('.copy-btn').forEach(button => {
                 button.addEventListener('click', () => {
                     const bubble = button.closest('.bubble');
-                    const content = bubble.querySelector('.bubble-content');
-                    if (content) {
-                        const textToCopy = content.innerText;
+                    const message = button.closest('.message');
+                    const textToCopy = message.dataset.rawCopyData || bubble.querySelector('.bubble-content').innerText;
+                    
+                    if (textToCopy) {
                         navigator.clipboard.writeText(textToCopy).then(() => {
                             button.classList.add('copied');
                             setTimeout(() => button.classList.remove('copied'), 1500);
