@@ -11,6 +11,7 @@ import subprocess
 import pdfplumber
 import docx
 import nbformat
+import shlex
 import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted
 from flask import Flask, render_template, request, session, redirect, url_for, jsonify, g, send_file
@@ -19,7 +20,7 @@ from flask.cli import with_appcontext
 try:
     FLASK_KEY = os.environ['FLASK_SECRET_KEY']
 except KeyError:
-    raise RuntimeError('FATAL: FLASK_SECRET_KEY environment variable is not set. Run: export FLASK_SECRET_KEY=$(openssl rand -hex 16)')
+    raise RuntimeError('FATAL: FLASK_SECRET_KEY environment variable not set. Run: export FLASK_SECRET_KEY=$(openssl rand -hex 16)')
 
 GOOGLE_KEY_ERROR = None
 try:
@@ -34,15 +35,12 @@ VALID_MODELS = [
     'gemini-2.5-pro',
     'gemini-2.5-flash',
     'gemini-2.5-flash-lite',
-    'gemini-2.0-flash',
-    'gemini-2.0-flash-lite',
-    'gemini-2.0-flash-exp',
-    'learnlm-2.0-flash-experimental'
 ]
 CODE_DIR = 'code'
 HOME_DIR = os.path.expanduser('~')
 WHITELISTED_EXTENSIONS = ['.pdf', '.txt', '.docx', '.py', '.c', '.ipynb']
 CONTEXT_WINDOW_THRESHOLD = 65536
+CACHE_EXPIRATION_SECONDS = 3600 # 1 hour
 
 if not os.path.exists(CODE_DIR):
     os.makedirs(CODE_DIR)
@@ -176,6 +174,7 @@ def select_model():
 def delete_chat(chat_id):
     db = get_db()
     db.execute('DELETE FROM messages WHERE chat_id = ?', (chat_id,))
+    db.execute('DELETE FROM file_cache WHERE chat_id = ?', (chat_id,))
     db.execute('DELETE FROM chats WHERE id = ?', (chat_id,))
     db.commit()
     
@@ -258,9 +257,10 @@ def download_chat(chat_id):
 def get_available_tools():
     return [
         {'name': 'list_directory', 'description': 'List all files and directories in a given path relative to home (~).', 'parameters': {'path': 'string'}},
-        {'name': 'read_file_content', 'description': 'Read the text content of a single file from a path relative to home (~).', 'parameters': {'path': 'string'}},
-        {'name': 'read_directory_recursively', 'description': 'Read content of all whitelisted files in a directory (relative to home ~) and its subdirectories.', 'parameters': {'path': 'string'}},
+        {'name': 'read_file_content', 'description': 'Read the text content of a single file from a path relative to home (~). Caches result per chat.', 'parameters': {'path': 'string'}},
+        {'name': 'read_directory_recursively', 'description': 'Read content of all whitelisted files in a directory (relative to home ~) and its subdirectories. Uses file cache.', 'parameters': {'path': 'string'}},
         {'name': 'save_text_file', 'description': 'Save a text string to a file (e.g., test.txt, script.py) inside the code/ directory.', 'parameters': {'filename': 'string', 'content': 'string'}},
+        {'name': 'delete_file_in_code', 'description': 'Delete a single file from the code/ directory.', 'parameters': {'filename': 'string'}},
         {'name': 'run_terminal_command', 'description': 'Execute a sandboxed terminal command (non-interactive) inside the code/ directory.', 'parameters': {'command': 'string'}},
         {'name': 'execute_python_script', 'description': 'Execute a Python script string in a sandbox (inside the code/ directory).', 'parameters': {'code_string': 'string'}},
     ]
@@ -282,6 +282,26 @@ def list_directory(path):
 
 
 def read_file_content(path):
+    chat_id = session.get('current_chat_id')
+    if not chat_id:
+        return json.dumps({'error': 'Chat session not found, cannot use cache.'})
+        
+    db = get_db()
+    
+    # Check cache first
+    cache_query = """
+    SELECT content FROM file_cache 
+    WHERE chat_id = ? AND path = ? AND
+    created_at > datetime('now', ?)
+    """
+    cached = db.execute(cache_query, (chat_id, path, f'-{CACHE_EXPIRATION_SECONDS} seconds')).fetchone()
+    
+    if cached:
+        content = cached['content']
+        token_count = estimate_tokens(content)
+        return json.dumps({'path': path, 'content': content, 'tokens': token_count, 'source': 'cache'})
+
+    # If not in cache or expired, read from disk
     try:
         full_path = resolve_path(path)
         if not full_path:
@@ -315,8 +335,15 @@ def read_file_content(path):
             return json.dumps({
                 'error': f'File {path} is too large to be processed ({token_count} tokens). This file cannot be used.'
             })
+        
+        # Save to cache
+        db.execute(
+            'INSERT OR REPLACE INTO file_cache (chat_id, path, content, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)',
+            (chat_id, path, content)
+        )
+        db.commit()
             
-        return json.dumps({'path': path, 'content': content, 'tokens': token_count})
+        return json.dumps({'path': path, 'content': content, 'tokens': token_count, 'source': 'disk'})
     except Exception as e:
         return json.dumps({'error': f'Error reading file: {str(e)}'})
 
@@ -334,7 +361,12 @@ def read_directory_recursively(path, selected_files=None):
         files_with_tokens = []
         total_token_count = 0
         
-        for root, _, files in os.walk(full_path):
+        for root, dirs, files in os.walk(full_path, topdown=True):
+            # Filter out hidden directories
+            dirs[:] = [d for d in dirs if not d.startswith('.')]
+            # Filter out hidden files
+            files = [f for f in files if not f.startswith('.')]
+            
             for file in files:
                 file_path = os.path.join(root, file)
                 rel_path = os.path.relpath(file_path, HOME_DIR)
@@ -397,9 +429,12 @@ def run_terminal_command(command):
         return json.dumps(validation)
 
     try:
+        # Use shlex.split to handle spaces and quotes safely
+        command_args = shlex.split(command)
+        
         result = subprocess.run(
-            command,
-            shell=True,
+            command_args,
+            shell=False, # Set shell=False for security
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -454,14 +489,57 @@ def save_text_file(filename, content):
         return json.dumps({'error': f'Error saving file: {str(e)}'})
 
 
+def delete_file_in_code(filename):
+    file_path = os.path.join(CODE_DIR, os.path.basename(filename))
+    
+    if not os.path.abspath(file_path).startswith(os.path.abspath(CODE_DIR)):
+        return json.dumps({'error': 'Path traversal detected. Deletion only allowed in code/.'})
+        
+    try:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            return json.dumps({'status': 'success', 'path': file_path})
+        else:
+            return json.dumps({'error': f'File not found: {filename}'})
+    except Exception as e:
+        return json.dumps({'error': f'Error deleting file: {str(e)}'})
+
+
 TOOLS_MAP = {
     'list_directory': list_directory,
     'read_file_content': read_file_content,
     'read_directory_recursively': read_directory_recursively,
     'save_text_file': save_text_file,
+    'delete_file_in_code': delete_file_in_code,
     'run_terminal_command': run_terminal_command,
     'execute_python_script': execute_python_script,
 }
+
+
+def format_history_for_model(db_messages):
+    history = []
+    for msg in db_messages:
+        if msg['role'] == 'user':
+            history.append({
+                'role': 'user',
+                'parts': [clean_html(msg['content'])]
+            })
+        elif msg['role'] == 'model' and msg['message_type'] == 'chat':
+            # Only add successful model chat responses to history
+            if 'ERROR' not in msg['content'] and 'Model selected' not in msg['content']:
+                history.append({
+                    'role': 'model',
+                    'parts': [clean_html(msg['content'])]
+                })
+    
+    # Prune empty messages
+    history = [h for h in history if h['parts'][0].strip()]
+    
+    # Ensure history starts with a user message if possible
+    if history and history[0]['role'] == 'model':
+        history = history[1:]
+        
+    return history
 
 
 @app.route('/api/chat', methods=['POST'])
@@ -499,6 +577,14 @@ def api_chat():
     
     try:
         model_instance = genai.GenerativeModel(model_name=model_name)
+        
+        # Fetch and format history for conversational context
+        db_messages = db.execute(
+            'SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at ASC', (chat_id,)
+        ).fetchall()
+        formatted_history = format_history_for_model(db_messages)
+        
+        chat_session = model_instance.start_chat(history=formatted_history)
         
         decision = 'CHAT'
         if agent_mode:
@@ -558,7 +644,8 @@ Respond with *only* a JSON object in the following format:
                 response_text = '--- ERROR: The agent plan was blocked by safety filters. ---'
                 
         if 'CHAT' in decision or not agent_mode:
-            response = model_instance.generate_content(prompt)
+            # Use the chat session which has history
+            response = chat_session.send_message(prompt)
             if response.candidates:
                 if response.candidates[0].finish_reason == 'SAFETY':
                     response_text = '--- ERROR: The response was blocked by safety filters. ---'
@@ -732,9 +819,11 @@ def agent_action():
         add_message_to_db(chat_id, 'user', f'User approved command: {command}', 'user_confirmation')
         
         try:
+            # Use shlex.split here as well for the confirmed command
+            command_args = shlex.split(command)
             result = subprocess.run(
-                command,
-                shell=True,
+                command_args,
+                shell=False,
                 check=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

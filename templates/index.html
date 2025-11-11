@@ -29,22 +29,6 @@
                     <strong>Gemini 2.5 Flash Lite</strong>
                     <span>(Lightweight, for speed)</span>
                 </button>
-                <button type='submit' name='model_choice' value='gemini-2.0-flash'>
-                    <strong>Gemini 2.0 Flash</strong>
-                    <span>(Older fast model)</span>
-                </button>
-                <button type='submit' name='model_choice' value='gemini-2.0-flash-lite'>
-                    <strong>Gemini 2.0 Flash Lite</strong>
-                    <span>(Older lightweight model)</span>
-                </button>
-                <button type='submit' name='model_choice' value='gemini-2.0-flash-exp'>
-                    <strong>Gemini 2.0 Flash Exp</strong>
-                    <span>(Experimental 2.0)</span>
-                </button>
-                <button type='submit' name_choice='model_choice' value='learnlm-2.0-flash-experimental'>
-                    <strong>LearnLM 2.0 Flash Exp</strong>
-                    <span>(Experimental learning model)</span>
-                </button>
             </form>
         </div>
     </div>
@@ -131,6 +115,7 @@
             
             <div class='chat-window' id='chat-window'>
                 {% for message in current_chat_messages %}
+                    {% if message.message_type not in ['tool_call', 'tool_output'] %}
                     <div class='message {{ message.role }} {{ message.message_type }}'>
                         <div class='bubble'>
                             <div class='bubble-content'>{{ message.content | safe }}</div>
@@ -144,6 +129,7 @@
                             {% endif %}
                         </div>
                     </div>
+                    {% endif %}
                 {% endfor %}
                 <div id='chat-end'></div>
             </div>
@@ -358,7 +344,7 @@
                 sendButton.disabled = false;
                 promptInput.focus();
                 scrollToBottom();
-                window.location.reload(); 
+                // window.location.reload();  <-- REMOVED THIS LINE
             }
         }
         
@@ -521,6 +507,10 @@
 
 
         function appendMessage(role, content, messageType = 'chat', bubbleClass = null, rawPlanJson = null) {
+            if (messageType === 'tool_call' || messageType === 'tool_output') {
+                return; // Do not append agent internal messages
+            }
+
             const messageDiv = document.createElement('div');
             messageDiv.classList.add('message', role, messageType);
             
