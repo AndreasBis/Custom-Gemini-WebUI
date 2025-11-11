@@ -20,8 +20,6 @@ itsdangerous==2.2.0
 Jinja2==3.1.6
 Markdown==3.10
 MarkupSafe==3.0.3
-nbformat
-pdfplumber
 proto-plus==1.26.1
 protobuf==5.29.5
 pyasn1==0.6.1
@@ -29,7 +27,6 @@ pyasn1_modules==0.4.2
 pydantic==2.12.4
 pydantic_core==2.41.5
 pyparsing==3.2.5
-python-docx
 requests==2.32.5
 rsa==4.9.1
 tqdm==4.67.1
@@ -38,3 +35,5 @@ typing_extensions==4.15.0
 uritemplate==4.2.0
 urllib3==2.5.0
 Werkzeug==3.1.3
+pdfplumber
+python-docx
