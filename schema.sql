@@ -1,5 +1,6 @@
 DROP TABLE IF EXISTS chats;
 DROP TABLE IF EXISTS messages;
+DROP TABLE IF EXISTS file_cache;
 
 CREATE TABLE chats (
   id TEXT PRIMARY KEY,
@@ -13,8 +14,16 @@ CREATE TABLE messages (
   chat_id TEXT NOT NULL,
   role TEXT NOT NULL,
   content TEXT NOT NULL,
-  raw_content TEXT NOT NULL DEFAULT '',
   message_type TEXT NOT NULL DEFAULT 'chat',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (chat_id) REFERENCES chats (id)
+);
+
+CREATE TABLE file_cache (
+  chat_id TEXT NOT NULL,
+  path TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (chat_id, path),
   FOREIGN KEY (chat_id) REFERENCES chats (id)
 );

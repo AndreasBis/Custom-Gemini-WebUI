@@ -9,3 +9,6 @@ venv/
 
 # Code garden
 code/
+
+# Temporary files garden
+temp/
