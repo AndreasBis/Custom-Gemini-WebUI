@@ -1,6 +1,6 @@
 # Custom Gemini WebUI
 
-This project is a web-based chat application that allows users to interact with various Google generative AI models. Key features include creating new chats, selecting from a list of available AI models, storing chat history, and downloading chat logs. The application is built with Flask and uses a SQLite database to manage conversations.
+This project is a web-based chat application that allows users to interact with various Google generative AI models. Key features include creating new chats, selecting from a list of available AI models, storing chat history, and downloading chat logs. The application is built with Flask and uses a SQLite database to manage conversations. It also includes non-stable agentic capabilities that allow the AI to perform file operations inside a sandboxed `code/` directory.
 
 ## Setup and Usage
 
@@ -39,7 +39,10 @@ To set up and run the project on a Linux terminal, follow these steps:
 
 ## File Summaries
 
-- **app.py**: The main Flask application file. It handles routing, database interactions, and the core logic of the chat application.
+- **app.py**: The main Flask application file, responsible for initializing the application and its blueprints.
+- **views.py**: Handles the primary routing, including chat interactions, model selection, and the new agent execution loop.
+- **agent_tools.py**: Defines the sandboxed agentic capabilities, such as reading, writing, and listing files within the `code/` directory.
+- **database.py**: Manages all database interactions, including creating a connection and adding messages.
 - **requirements.txt**: Lists all the Python libraries and dependencies required to run the project.
 - **schema.sql**: Contains the SQL statements to create the database schema for the chat application, including the `chats` and `messages` tables.
 - **static/style.css**: The stylesheet for the application, which controls the visual appearance of the chat interface.
